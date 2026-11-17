@@ -6,7 +6,7 @@
 body{margin:0;font-family:system-ui,sans-serif;background:#2a2622;color:#f1e7d3}
 .wrap{max-width:960px;margin:0 auto;padding:12px}
 h1{font-size:1.3rem;margin:.3em 0}
-#banner{padding:6px 10px;border-radius:6px;font-size:.85rem;margin:8px 0}
+#banner,#live{padding:6px 10px;border-radius:6px;font-size:.85rem;margin:8px 0}
 .ok{background:#2d5a34}.bad{background:#7a2b2b}
 .grid{display:grid;grid-template-columns:1fr;gap:10px}
 @media(min-width:700px){.grid{grid-template-columns:repeat(3,1fr)}}
@@ -17,15 +17,16 @@ input[type=range]{width:100%}
 button{min-height:40px;padding:0 14px;border-radius:6px;border:0;background:#e07a3f;color:#fff;font-size:1rem}
 button:active{background:#b85f2b}
 .note{font-size:.85rem;opacity:.85}
-</style></head><body><div class="wrap">
+</style></head><body>
+<script data-bean-store>(function(){if(typeof location!=='undefined'&&location&&location.protocol==='about:'&&typeof document!=='undefined'&&document.addEventListener){document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&e.target.closest('a[href^="#"]');if(!a||a.target==='_blank')return;e.preventDefault();try{location.hash=a.getAttribute('href')}catch(x){}},true)}if(typeof window==='undefined')return;try{window.localStorage.getItem('x');return}catch(e){}var d=Object.assign({},window.__BEAN_SAVED||{});function post(){try{parent.postMessage({type:'bean-store',data:d},'*')}catch(e){}}var ls={getItem:function(k){return Object.prototype.hasOwnProperty.call(d,k)?d[k]:null},setItem:function(k,v){d[k]=String(v);post()},removeItem:function(k){delete d[k];post()},clear:function(){d={};post()},key:function(i){return Object.keys(d)[i]||null}};Object.defineProperty(ls,'length',{get:function(){return Object.keys(d).length}});try{Object.defineProperty(window,'localStorage',{value:ls,configurable:true})}catch(e){}})();</script><div class="wrap">
 <h1>Golem swing timing</h1>
 <p class="note">Same golem, three step speeds. The arms trail the legs by the lag. Which one is heavy and which one is a slug?</p>
 <div id="banner"></div>
+<div id="live"></div>
 <button id="pp">Pause</button>
 <div class="grid" id="grid"></div>
 </div>
 <script>
-// pure pose: period in seconds, lag as fraction of a cycle, time t
 function pose(t,period,lag){
   var ph=(t/period)%1;
   var leg=Math.sin(ph*2*Math.PI);
@@ -33,29 +34,66 @@ function pose(t,period,lag){
   var bob=-Math.abs(Math.sin(ph*Math.PI))*5;
   return {leg:leg,arm:arm,bob:bob};
 }
+// steps (cycles) finished within secs. Real: k*period <= secs. Broken twin: strict <.
+function stepsDone(period,secs,strict){
+  var n=0;
+  for(var k=1;k<=1000;k++){
+    var e=k*period;
+    if(strict?(e<secs):(e<=secs))n=k;else break;
+  }
+  return n;
+}
+function allDiffer(a){
+  for(var i=0;i<a.length;i++)for(var j=i+1;j<a.length;j++)if(a[i]===a[j])return false;
+  return true;
+}
+function countsFor(periods,secs,strict){return periods.map(function(p){return stepsDone(p,secs,strict);});}
 var cfgs=[
  {name:'Heavy',period:2.2,lag:0.18,note:'slow, long arm lag'},
  {name:'Middle',period:1.3,lag:0.12,note:'medium'},
  {name:'Slug?',period:3.8,lag:0.05,note:'very slow, little lag'}
 ];
-// checks
-function checks(){
+var defaultPeriods=cfgs.map(function(c){return c.period;});
+function poseChecks(){
   var r=[];
-  var p=pose(0,1,0.25);r.push(Math.abs(p.leg)<1e-9);
+  r.push(Math.abs(pose(0,1,0.25).leg)<1e-9);
   r.push(Math.abs(pose(0.25,1,0.25).leg-1)<1e-9);
   r.push(Math.abs(pose(0.5,1,0.25).arm-1)<1e-9);
   r.push(Math.abs(pose(0.25,1,0.25).arm)<1e-9);
   r.push(pose(0.5,1,0).bob<-4.99);
-  // broken copy: no lag must fail the lag check
   var broken=function(t,pe){return pose(t,pe,0);};
-  r.push(Math.abs(broken(0.25,1).arm-1)<1e-9); // true for broken, expected to differ from lagged
-  r[r.length-1]=!(Math.abs(broken(0.5,1).arm-1)<1e-9);
+  r.push(!(Math.abs(broken(0.5,1).arm-1)<1e-9));
   return r;
 }
-var res=checks(),b=document.getElementById('banner');
-var all=res.every(Boolean);
-b.className=all?'ok':'bad';b.textContent=all?'Self-test pass ('+res.length+' checks)':'Self-test FAIL: '+res.map(function(x){return x?1:0}).join('');
+// speed checks: each case is [period, secs, expectedSteps]; exact ties included
+var cases=[[2,10,5],[2,9.9,4],[2.5,10,4],[1,10,10],[3,10,3],[2.2,10,4],[1.3,10,7],[3.8,10,2]];
+function speedChecks(strict){
+  var r=cases.map(function(c){return stepsDone(c[0],c[1],strict)===c[2];});
+  r.push(allDiffer(countsFor(defaultPeriods,10,strict))===true);
+  r.push(allDiffer([4,4,2])===false);
+  r.push(allDiffer(countsFor([2,2,3],10,strict))===false);
+  return r;
+}
+var rt,pr,all,bad;
+try{
+  pr=poseChecks();
+  rt=speedChecks(false);
+  var rb=speedChecks(true);
+  var brokenFails=!rb.every(Boolean);
+  all=pr.every(Boolean)&&rt.every(Boolean)&&brokenFails;
+  var b=document.getElementById('banner');
+  b.className=all?'ok':'bad';
+  b.textContent=all?'Self-test pass ('+(pr.length+rt.length)+' checks, off-by-one copy rejected on '+rb.filter(function(x){return !x;}).length+')':
+   'Self-test FAIL: pose '+pr.map(Number).join('')+' speed '+rt.map(Number).join('')+(brokenFails?'':' (broken copy NOT caught)');
+}catch(e){var bb=document.getElementById('banner');bb.className='bad';bb.textContent='Self-test error: '+e.message;}
 var grid=document.getElementById('grid'),cells=[];
+function liveCheck(){
+  var cs=countsFor(cfgs.map(function(c){return c.period;}),10,false);
+  var ok=allDiffer(cs);
+  var l=document.getElementById('live');
+  l.className=ok?'ok':'bad';
+  l.textContent='Steps in 10 s: '+cfgs.map(function(c,i){return c.name+' '+cs[i];}).join(', ')+(ok?' (all different)':' (two panels match, speeds not distinct)');
+}
 cfgs.forEach(function(c,i){
   var d=document.createElement('div');d.className='cell';
   d.innerHTML='<b>'+c.name+'</b> <span class="note">'+c.note+'</span><canvas width="300" height="240"></canvas>'+
@@ -63,35 +101,25 @@ cfgs.forEach(function(c,i){
   '<label>Arm lag (cycle fraction): <span class="lv"></span><input type="range" min="0" max="0.4" step="0.01" value="'+c.lag+'"></label>';
   grid.appendChild(d);
   var ins=d.querySelectorAll('input'),o={c:c,cv:d.querySelector('canvas'),pv:d.querySelector('.pv'),lv:d.querySelector('.lv')};
-  function upd(){c.period=+ins[0].value;c.lag=+ins[1].value;o.pv.textContent=c.period;o.lv.textContent=c.lag;}
+  function upd(){c.period=+ins[0].value;c.lag=+ins[1].value;o.pv.textContent=c.period;o.lv.textContent=c.lag;liveCheck();}
   ins[0].oninput=upd;ins[1].oninput=upd;upd();cells.push(o);
 });
-function limb(x,g,y,ang,len,w,col){
-  x.save();x.translate(x_,y);
-}
 function drawGolem(x,t,c){
   var p=pose(t,c.period,c.lag);
   x.clearRect(0,0,300,240);
   x.fillStyle='#b8a67f';x.fillRect(0,200,300,40);
-  var cx=150,hy=200+p.bob*0; 
-  var by=p.bob;
+  var cx=150,by=p.bob;
   function part(px,py,ang,len,w,col){
     x.save();x.translate(px,py);x.rotate(ang);x.fillStyle=col;x.fillRect(-w/2,0,w,len);x.restore();
   }
-  // legs
   part(cx-18,150+by,p.leg*0.5,52,22,'#5d6b5a');
   part(cx+18,150+by,-p.leg*0.5,52,22,'#6f7d6a');
-  // back arm
   part(cx+40,88+by,p.arm*0.7,70,20,'#6f7d6a');
-  // torso
   x.fillStyle='#7f8f78';x.fillRect(cx-40,80+by,80,75);
   x.fillStyle='#5d6b5a';x.fillRect(cx-30,100+by,20,8);
-  // head
   x.fillStyle='#8a9a82';x.fillRect(cx-20,52+by,40,32);
   x.fillStyle='#ffd45a';x.fillRect(cx-12,64+by,8,6);x.fillRect(cx+4,64+by,8,6);
-  // front arm
   part(cx-40,88+by,-p.arm*0.7,70,20,'#5d6b5a');
-  // shadow
   x.fillStyle='rgba(0,0,0,.2)';x.fillRect(cx-45,198,90,5);
 }
 var paused=false,T=0,last=null;

@@ -1,6 +1,6 @@
 # Golem Swing Timing Test
 
-Built a page with one drawn golem in three panels at different step speeds, with sliders for speed and arm lag, and a load-time self-test.
+Added a step-speed check (steps completed in 10 s per panel must all differ) with an off-by-one broken copy that has to fail, plus a live line under the banner;
 
 Made by Bean, a cat. Open it: https://bean-bengal.github.io/golem-swing-timing-test/
 
